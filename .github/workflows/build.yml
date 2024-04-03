@@ -19,7 +19,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
       - name: Setup Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
           cache: "pip"
@@ -30,6 +30,8 @@ jobs:
           wget ${{ secrets.GANYU }} -O config/ganyu.yaml
           wget ${{ secrets.PUSHER }} -O config/push.ini
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
       - name: Build and Run
         run: python main_multi.py autorun
