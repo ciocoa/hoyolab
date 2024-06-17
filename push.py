@@ -5,7 +5,8 @@ import base64
 import config
 import urllib
 import hashlib
-from request import http
+from datetime import datetime, timezone
+from request import http, get_new_session_use_proxy
 from loghelper import log
 from configparser import ConfigParser, NoOptionError
 
@@ -21,20 +22,22 @@ def load_config():
         return False
 
 
-def title(status):
-    if status == 0:
-        return "「米游社脚本」执行成功!"
-    elif status == 1:
-        return "「米游社脚本」执行失败!"
-    elif status == 2:
-        return "「米游社脚本」部分账号执行失败！"
-    elif status == 3:
-        return "「米游社脚本」游戏道具签到触发验证码！"
+title = {
+    0: "「米游社脚本」执行成功!",
+    1: "「米游社脚本」执行失败!",
+    2: "「米游社脚本」部分账号执行失败！",
+    3: "「米游社脚本」游戏道具签到触发验证码！"
+}
 
 
 # telegram的推送
 def telegram(send_title, push_message):
-    http.post(
+    http_proxy = cfg.get('telegram', 'http_proxy', fallback=None)
+    if http_proxy:
+        session = get_new_session_use_proxy(http_proxy)
+    else:
+        session = http
+    session.post(
         url="https://{}/bot{}/sendMessage".format(cfg.get('telegram', 'api_url'), cfg.get('telegram', 'bot_token')),
         data={
             "chat_id": cfg.get('telegram', 'chat_id'),
@@ -131,6 +134,22 @@ def wecom(send_title, push_message):
         "safe": 0
     }
     http.post(f'https://qyapi.weixin.qq.com/cgi-bin/message/send?access_token={push_token}', json=push_data)
+
+
+# 企业微信机器人
+def wecomrobot(send_title, push_message):
+    rep = http.post(
+        url=f'{cfg.get("wecomrobot", "url")}',
+        headers={"Content-Type": "application/json; charset=utf-8"},
+        json={
+            "msgtype": "text",
+            "text": {
+                "content": send_title + "\r\n" + push_message,
+                "mentioned_mobile_list": [f'{cfg.get("wecomrobot", "mobile")}']
+            }
+        }
+    ).json()
+    log.info(f"推送结果：{rep.get('errmsg')}")
 
 
 # pushdeer
@@ -255,31 +274,71 @@ def qmsg(send_title, push_message):
     log.info(f"推送结果：{rep['reason']}")
 
 
+def discord(send_title, push_message):
+    import pytz
+    
+    rep = http.post(
+        url=f'{cfg.get("discord", "webhook")}',
+        headers={"Content-Type": "application/json; charset=utf-8"},
+        json={
+              "content": None,
+              "embeds": [
+                {
+                  "title": send_title,
+                  "description": push_message,
+                  "color": 1926125,
+                  "author": {
+                    "name": "MihoyoBBSTools",
+                    "url": "https://github.com/Womsxd/MihoyoBBSTools",
+                    "icon_url": "https://github.com/DGP-Studio/Snap.Hutao.Docs/blob/main/docs/.vuepress/public/images/202308/hoyolab-miyoushe-Icon.png?raw=true"
+                  },
+                  "timestamp": datetime.now(timezone.utc).astimezone(pytz.timezone('Asia/Shanghai')).isoformat()
+                }
+              ],
+            "username": "MihoyoBBSTools",
+            "avatar_url": "https://github.com/DGP-Studio/Snap.Hutao.Docs/blob/main/docs/.vuepress/public/images/202308/hoyolab-miyoushe-Icon.png?raw=true",
+            "attachments": []
+            }
+    )
+    if rep.status_code != 204:
+        log.warning(f"推送执行错误：{rep.text}")
+    else:
+        log.info(f"推送结果：HTTP {rep.status_code} Success")
+
+def wintoast(send_title, push_message):
+    try:
+        from win11toast import toast
+        toast(app_id="MihoyoBBSTools",title=send_title,body=push_message,icon='')
+    except:
+        log.error(f"请先pip install win11toast再使用win通知")
+    
+
+
 def push(status, push_message):
     if not load_config():
+        return 1
+    if not cfg.getboolean('setting', 'enable'):
         return 0
-    if cfg.getboolean('setting', 'enable'):
-        log.info("正在执行推送......")
-        func_names = cfg.get('setting', 'push_server').lower()
-        for func_name in func_names.split(","):
-            func = globals().get(func_name)
-            # print(func)
-            if not func:
-                log.warning("推送服务名称错误：请检查config/push.ini -> [setting] -> push_server")
-                return 0
-            log.debug(f"推送所用的服务为：{func_name}")
-            try:
-                if not config.update_config_need:
-                    func(title(status), push_message)
-                else:
-                    func('「米游社脚本」config可能需要手动更新',
-                         f'如果您多次收到此消息开头的推送，证明您运行的环境无法自动更新config，请手动更新一下，谢谢\r\n{title(status)}\r\n{push_message}')
-            except Exception as r:
-                log.warning(f"推送执行错误：{str(r)}")
-                return 0
+    log.info("正在执行推送......")
+    func_names = cfg.get('setting', 'push_server').lower()
+    for func_name in func_names.split(","):
+        func = globals().get(func_name)
+        if not func:
+            log.warning("推送服务名称错误：请检查config/push.ini -> [setting] -> push_server")
+            continue
+        log.debug(f"推送所用的服务为: {func_name}")
+        try:
+            if not config.update_config_need:
+                func(title.get(status, ''), push_message)
             else:
-                log.info(f"{func_name} - 推送完毕......")
-    return 1
+                func('「米游社脚本」config可能需要手动更新',
+                     f'如果您多次收到此消息开头的推送，证明您运行的环境无法自动更新config，请手动更新一下，谢谢\r\n'
+                     f'{title.get(status, "")}\r\n{push_message}')
+        except Exception as r:
+            log.warning(f"推送执行错误：{str(r)}")
+            return 1
+        log.info(f"{func_name} - 推送完毕......")
+    return 0
 
 
 if __name__ == "__main__":

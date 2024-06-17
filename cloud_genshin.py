@@ -5,12 +5,6 @@ from request import http
 from loghelper import log
 
 
-def time_conversion(minute: int) -> str:
-    h = minute // 60
-    s = minute % 60
-    return f"{h}小时{s}分钟"
-
-
 class CloudGenshin:
     def __init__(self) -> None:
         self.headers = {
@@ -20,8 +14,8 @@ class CloudGenshin:
             'x-rpc-combo_token': config.config['cloud_games']['genshin']['token'],
             'Accept-Encoding': 'gzip, deflate',
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) '
-                          'Chrome/99.0.4844.84 Safari/537.36 HBPC/12.1.1.301',
-
+                          'Chrome/99.0.4844.84 Safari/537.36',
+        
         }
 
     def sign_account(self) -> str:
@@ -35,7 +29,7 @@ class CloudGenshin:
             else:
                 log.info('签到失败，未获得免费时长，可能是已经签到过了或者超出免费时长上线')
                 ret_msg += '签到失败，未获得免费时长，可能是已经签到过了或者超出免费时长上线\n'
-            ret_msg += f'你当前拥有免费时长 {time_conversion(int(data["data"]["free_time"]["free_time"]))} ,' \
+            ret_msg += f'你当前拥有免费时长 {tools.time_conversion(int(data["data"]["free_time"]["free_time"]))} ,' \
                        f'畅玩卡状态为 {data["data"]["play_card"]["short_msg"]}，拥有米云币 {data["data"]["coin"]["coin_num"]} 枚'
             log.info(ret_msg)
         elif data['retcode'] == -100:
